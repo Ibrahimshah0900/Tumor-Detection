@@ -1,555 +1,359 @@
-<!-- =========================================================
-                       PROJECT HEADER
-========================================================== -->
+# Brain Tumor Detection and Segmentation Research Pipeline
 
-<p align="center">
-  <img
-    src="https://capsule-render.vercel.app/api?type=waving&height=180&text=AI%20%26%20ML%20Learning%20Projects&fontSize=38&fontAlign=50&fontAlignY=35&desc=Computer%20Vision%20%7C%20Machine%20Learning%20%7C%20NLP&descSize=16&descAlign=50&descAlignY=58&animation=fadeIn"
-    width="100%"
-    alt="AI and ML Learning Projects"
-  />
-</p>
+A reproducible research prototype for brain tumor analysis from T1-weighted MRI using YOLO-based localization and SAM2-based segmentation.
 
-<p align="center">
-  <img
-    src="https://readme-typing-svg.demolab.com?font=JetBrains+Mono&size=19&duration=3000&pause=900&center=true&vCenter=true&width=760&lines=Experimenting+with+Computer+Vision+%F0%9F%91%81%EF%B8%8F;Learning+Machine+Learning+through+Projects+%F0%9F%A7%A0;YOLO11+%2B+SAM2+%7C+TF-IDF+%7C+Scikit-learn;Learning+by+Building."
-    alt="Typing Animation"
-  />
-</p>
+The project is designed as an experimental framework rather than a clinical product. Its goal is to study whether detector-guided segmentation can provide a compact, reproducible pipeline for localizing and segmenting glioma, meningioma, and pituitary tumors.
 
-<p align="center">
+## Research Question
 
-<img
-  src="https://img.shields.io/badge/Python-Learning%20Projects-3776AB?style=for-the-badge&logo=python&logoColor=white"
-  alt="Python"
-/>
+Can a lightweight YOLO detector provide reliable spatial prompts for SAM2 and produce competitive tumor segmentation quality across tumor classes and MRI acquisition planes?
 
-<img
-  src="https://img.shields.io/badge/Computer%20Vision-YOLO11%20%2B%20SAM2-7C3AED?style=for-the-badge"
-  alt="Computer Vision"
-/>
+## Dataset
 
-<img
-  src="https://img.shields.io/badge/Machine%20Learning-scikit--learn-F7931E?style=for-the-badge&logo=scikitlearn&logoColor=white"
-  alt="Scikit-learn"
-/>
+The primary dataset is **BRISC 2025**, published in *Scientific Data*.
 
-</p>
+BRISC contains:
 
----
+- 6,000 contrast-enhanced T1-weighted MRI images
+- 5,000 official training images
+- 1,000 official test images
+- Glioma, meningioma, pituitary tumor, and no-tumor classes
+- Axial, coronal, and sagittal views
+- Expert-reviewed pixel-level masks for tumor-positive scans
+- Separate classification and segmentation task folders
 
-# 🧠 AI & Machine Learning Learning Projects
+Dataset:
+https://www.kaggle.com/datasets/briscdataset/brisc2025
 
-This repository contains selected experiments completed while learning and practicing **Artificial Intelligence, Machine Learning, Computer Vision, and NLP**.
+Paper:
+https://doi.org/10.1038/s41597-026-06753-y
 
-Rather than presenting these experiments as production-ready applications, this repository documents practical hands-on work used to understand:
+The dataset itself is intentionally not stored in this repository.
 
-- 👁️ Object detection
-- 🎯 Image segmentation
-- 🧠 Deep learning workflows
-- 📝 Text classification
-- 🔢 Feature extraction
-- 🤖 Classical machine-learning algorithms
-- 📊 Model evaluation
-- ☁️ Google Colab experimentation
+## Experimental Design
 
----
+The repository treats the official BRISC test set as held-out evaluation data.
 
-# 📚 Current Projects
+A validation split is created only from the official training partition. Stratification uses tumor class and MRI plane. Because public BRISC files do not provide patient identifiers, patient-disjoint splitting cannot be independently verified. This is recorded as a methodological limitation rather than hidden.
 
-| Project | Area | Main Technologies |
-|---|---|---|
-| 🧠 Brain Tumor Detection & Segmentation | Computer Vision | YOLO11, SAM2, Ultralytics |
-| 📧 Spam Message Detection | NLP / Machine Learning | TF-IDF, scikit-learn |
+For detection, the target classes are:
 
----
+| ID | Class |
+|---:|---|
+| 0 | Glioma |
+| 1 | Meningioma |
+| 2 | Pituitary |
 
-# 🧠 1. Brain Tumor Detection & Segmentation
+No-tumor scans are used as negative samples with empty YOLO label files instead of being represented as a bounding-box class.
 
-The first experiment explores a two-stage computer-vision workflow for analyzing brain MRI images.
+Tumor bounding boxes are generated directly from the expert segmentation masks.
 
-```text
-MRI Image
-   ↓
-YOLO11 Detection
-   ↓
-Tumor Bounding Box
-   ↓
-SAM2 Segmentation
-   ↓
-Tumor Region Mask
-```
+## Research Stages
 
-The experiment combines:
+### Stage 1 — Dataset Audit
 
-- **YOLO11** for object detection
-- **SAM2** for segmentation
+The dataset is checked for:
 
-YOLO first identifies a suspected tumor region using a bounding box. That bounding box is then provided to SAM2 as a spatial prompt for segmentation.
+- class distribution
+- train/test counts
+- MRI plane distribution
+- segmentation-pair completeness
+- empty masks
+- tumor-mask area statistics
 
----
+Run:
 
-## 🔍 Detection Stage
+\`\`\`bash
+python "Tumor detection.py" audit-brisc \
+  --dataset-root /path/to/brisc2025 \
+  --output outputs/dataset_audit
+\`\`\`
 
-The experiment uses:
+### Stage 2 — Detection Dataset Preparation
 
-```python
-YOLO("yolo11n.pt")
-```
+Expert masks are converted into YOLO bounding boxes.
 
-and trains the model using:
+Run:
 
-```text
-Epochs      → 20
-Image Size  → 640
-Device      → GPU (device=0)
-Framework   → Ultralytics
-```
+\`\`\`bash
+python "Tumor detection.py" prepare-brisc \
+  --dataset-root /path/to/brisc2025 \
+  --output datasets/brisc_yolo \
+  --validation-fraction 0.15 \
+  --seed 42 \
+  --clean
+\`\`\`
 
-The original experiment was performed in **Google Colab**.
+Generated artifacts include:
 
----
+- \`data.yaml\`
+- train/validation/test image folders
+- YOLO labels
+- \`dataset_manifest.csv\`
+- \`dataset_summary.json\`
 
-# ✂️ Segmentation Stage
+### Stage 3 — Detector Training
 
-After detection, the experiment loads:
+A single model can be trained with:
 
-```python
-SAM("sam2_b.pt")
-```
+\`\`\`bash
+python "Tumor detection.py" train \
+  --data datasets/brisc_yolo/data.yaml \
+  --model yolo11n.pt \
+  --epochs 100 \
+  --imgsz 640 \
+  --batch 16 \
+  --seed 42
+\`\`\`
+
+### Stage 4 — Controlled Detector Experiments
+
+The default study compares:
+
+- YOLO11n
+- YOLO11s
+- YOLO11m
+- 512 × 512 input
+- 640 × 640 input
+
+Run:
+
+\`\`\`bash
+python "Tumor detection.py" experiment \
+  --data datasets/brisc_yolo/data.yaml \
+  --models yolo11n.pt yolo11s.pt yolo11m.pt \
+  --imgsz 512 640 \
+  --epochs 100 \
+  --batch 16 \
+  --split val \
+  --seed 42
+\`\`\`
+
+The script stores per-run results in CSV and JSON for direct comparison.
 
-The detected YOLO bounding boxes are passed into SAM2:
+### Stage 5 — Detector Evaluation
 
-```text
-YOLO Detection
-      ↓
-Bounding Box Coordinates
-      ↓
-SAM2 Prompt
-      ↓
-Segmentation Mask
-```
+Primary detection metrics are:
 
-This demonstrates how an object detector and segmentation model can be combined into a simple vision pipeline.
+- Precision
+- Recall
+- mAP@50
+- mAP@75
+- mAP@50–95
+- Inference time
 
----
+Object detection is not evaluated with ordinary classification accuracy because localization quality matters in addition to class correctness.
 
-# 🏗️ Brain Tumor Pipeline
+Run:
 
-```mermaid
-flowchart LR
-    A[Brain MRI Image] --> B[YOLO11]
-    B --> C[Tumor Detection]
-    C --> D[Bounding Box]
-    D --> E[SAM2]
-    E --> F[Segmentation Mask]
-```
+\`\`\`bash
+python "Tumor detection.py" evaluate \
+  --weights runs/tumor_detection/<run>/weights/best.pt \
+  --data datasets/brisc_yolo/data.yaml \
+  --split val
+\`\`\`
 
----
+The official test split should be used only after model selection is complete.
 
-# 🛠️ Brain Tumor Technologies
+### Stage 6 — YOLO-Guided SAM2 Segmentation
 
-<p align="center">
-  <img
-    src="https://skillicons.dev/icons?i=python,pytorch&perline=2"
-    alt="Computer Vision Stack"
-  />
-</p>
+YOLO detections are converted into bounding-box prompts for SAM2.
 
-Technologies and tools explored include:
+Pipeline:
 
-`Python` • `Ultralytics` • `YOLO11` • `SAM2` • `PyTorch` • `Google Colab`
+\`\`\`text
+MRI
+ ↓
+YOLO tumor localization
+ ↓
+Bounding-box prompt
+ ↓
+SAM2
+ ↓
+Predicted tumor mask
+ ↓
+Comparison with expert BRISC mask
+\`\`\`
 
----
+Run:
 
-# ⚠️ Brain Tumor Experiment Notes
+\`\`\`bash
+python "Tumor detection.py" benchmark-segmentation \
+  --weights runs/tumor_detection/<run>/weights/best.pt \
+  --dataset-root /path/to/brisc2025 \
+  --sam-model sam2.1_b.pt \
+  --split test \
+  --imgsz 640
+\`\`\`
 
-The current repository contains the experiment script but does **not** currently include:
+Primary segmentation metrics are:
 
-- the MRI dataset
-- `data.yaml`
-- trained model weights
-- example prediction images
-- formal evaluation metrics
-- a standalone requirements file
-- a separate segmentation script
+- Dice coefficient
+- Intersection over Union
+- Pixel precision
+- Pixel recall
+- Detection coverage
 
-The original script also contains Google Colab / Google Drive paths such as:
+The benchmark also reports per-class segmentation performance.
 
-```text
-/content/drive/MyDrive/...
-```
+## Metrics
 
-These paths must be changed before the experiment can be reproduced in another environment.
+### Detection
 
-The script was exported from a Colab notebook and therefore also contains notebook-specific commands such as:
+\`\`\`text
+Precision = TP / (TP + FP)
+Recall    = TP / (TP + FN)
+mAP@50    = mean Average Precision at IoU 0.50
+mAP@75    = mean Average Precision at IoU 0.75
+mAP@50-95 = mean AP averaged across IoU 0.50 to 0.95
+\`\`\`
 
-```python
-!pip install ultralytics
-```
+### Segmentation
 
-For normal local Python execution, dependencies should instead be installed from the terminal.
+\`\`\`text
+Dice = 2TP / (2TP + FP + FN)
+IoU  = TP / (TP + FP + FN)
+\`\`\`
 
----
+## Published BRISC Reference Results
 
-# 🔬 Future Brain Tumor Improvements
+The values below are **external published baselines**. They are included only as scientific context and are not claimed as results produced by this repository.
 
-If this experiment is revisited, useful next steps would include:
+| Task | Model | Reported Result |
+|---|---|---:|
+| Classification | EfficientNetB0 | Accuracy 99.20% |
+| Segmentation | Swin-HAFNet | Weighted mIoU 82.30% |
+| Segmentation | U-Net | Weighted mIoU 75.70% |
+| Segmentation | SaberNet | Weighted mIoU 80.60% |
 
-- [ ] Document the original dataset source
-- [ ] Add reproducible dataset configuration
-- [ ] Add `requirements.txt`
-- [ ] Add trained-model metadata
-- [ ] Record precision
-- [ ] Record recall
-- [ ] Record mAP
-- [ ] Add sample detections
-- [ ] Add sample segmentation masks
-- [ ] Clean the exported Colab code
-- [ ] Separate training and inference scripts
-- [ ] Compare multiple detector variants
-- [ ] Document hardware and training time
-- [ ] Move the experiment into a dedicated repository if sufficiently developed
+Source: Fateh et al., *Scientific Data*, 2026.
 
-> No accuracy or performance numbers are reported here until the original
-> experiment results are recovered and verified.
+These baselines provide reference points for interpreting future YOLO + SAM2 results. Direct comparison must account for differences in task formulation, training protocol, architecture, and evaluation setup.
 
----
+## Result Integrity
 
-# 📧 2. Spam Message Detection
+This repository does not contain fabricated model scores.
 
-The second project explores **binary text classification** for distinguishing spam messages from legitimate messages.
+Measured YOLO and SAM2 results are written automatically by the code after training and evaluation. Until a complete BRISC experiment is executed, published reference results remain clearly separated from repository-generated results.
 
-The dataset labels are mapped as:
+This distinction is intentional because reproducibility and traceability are more important than displaying unverified accuracy numbers.
 
-```text
-ham  → 0
-spam → 1
-```
+## Reproducibility
 
----
+The pipeline records:
 
-# 🧹 Text Processing
+- random seed
+- Python version
+- PyTorch version
+- Ultralytics version
+- CUDA availability
+- GPU name
+- image size
+- batch size
+- training duration
+- inference latency
+- best checkpoint path
+- experiment metrics
 
-The experiment performs basic text preprocessing including:
+Experiment outputs are saved under \`runs/tumor_detection/\`.
 
-- lowercase conversion
-- punctuation removal
-- email-pattern removal
-- URL removal
-- non-alphabetic character filtering
-- numeric character removal
-- whitespace processing
+## Repository Structure
 
-The processed messages are then converted into numerical features using:
-
-## TF-IDF
-
-```python
-TfidfVectorizer(max_features=5000)
-```
-
----
-
-# 🧠 Models Compared
-
-Four classical machine-learning algorithms are trained and evaluated.
-
-### 1️⃣ Multinomial Naive Bayes
-
-```text
-MultinomialNB
-```
-
-### 2️⃣ Logistic Regression
-
-```text
-LogisticRegression
-```
-
-### 3️⃣ Random Forest
-
-```text
-RandomForestClassifier
-```
-
-### 4️⃣ Support Vector Machine
-
-```text
-SVC with linear kernel
-```
-
----
-
-# 🏗️ Spam Detection Pipeline
-
-```mermaid
-flowchart LR
-    A[Raw Messages] --> B[Data Cleaning]
-    B --> C[Text Preprocessing]
-    C --> D[TF-IDF Vectorization]
-    D --> E[Train / Test Split]
-
-    E --> F[Naive Bayes]
-    E --> G[Logistic Regression]
-    E --> H[Random Forest]
-    E --> I[Linear SVM]
-
-    F --> J[Evaluation]
-    G --> J
-    H --> J
-    I --> J
-```
-
----
-
-# 📊 Evaluation
-
-The experiment evaluates each classifier using:
-
-```text
-Accuracy
-Precision
-Recall
-F1-score
-```
-
-The script uses:
-
-```python
-accuracy_score()
-classification_report()
-```
-
-The current repository does not store the original printed results, so no accuracy values are claimed in this README.
-
----
-
-# ⚙️ Train/Test Configuration
-
-The experiment currently uses:
-
-```text
-Training Data → 80%
-Testing Data  → 20%
-Random State  → 42
-TF-IDF Limit  → 5,000 features
-```
-
----
-
-# ⚠️ Spam Dataset Requirement
-
-The script expects a local file named:
-
-```text
-Spam Detection.csv
-```
-
-with columns including:
-
-```text
-Category
-Message
-```
-
-That dataset is **not currently included in this repository**.
-
-To reproduce the experiment, an appropriate dataset needs to be added or its path updated in:
-
-```python
-pd.read_csv("Spam Detection.csv")
-```
-
----
-
-# 📂 Repository Structure
-
-The repository currently contains:
-
-```text
-Learning-projects-/
-│
-├── README.md
-│
+\`\`\`text
+Tumor-Detection/
 ├── Tumor detection.py
-│   └── YOLO11 + SAM2 brain MRI experiment
-│
-└── spam_detection_project.py
-    └── TF-IDF spam classification experiment
-```
+├── README.md
+├── requirements.txt
+└── .gitignore
+\`\`\`
 
-This README intentionally reflects the files that actually exist in the repository.
+After dataset preparation and experimentation:
 
----
+\`\`\`text
+Tumor-Detection/
+├── datasets/
+│   └── brisc_yolo/
+│       ├── images/
+│       ├── labels/
+│       ├── data.yaml
+│       ├── dataset_manifest.csv
+│       └── dataset_summary.json
+├── runs/
+│   └── tumor_detection/
+├── Tumor detection.py
+├── README.md
+├── requirements.txt
+└── .gitignore
+\`\`\`
 
-# 🚀 Running the Experiments
+## Installation
 
-These projects were created primarily as learning experiments rather than packaged applications.
+Python 3.10 or newer is recommended.
 
-## Clone the Repository
+\`\`\`bash
+git clone https://github.com/Ibrahimshah0900/Tumor-Detection.git
+cd Tumor-Detection
+python -m venv .venv
+\`\`\`
 
-```bash
-git clone https://github.com/Ibrahimshah0900/Learning-projects-.git
-cd Learning-projects-
-```
+Windows:
 
----
+\`\`\`bash
+.venv\Scripts\activate
+\`\`\`
 
-## Brain Tumor Experiment
+Linux/macOS:
 
-Install the main dependency:
+\`\`\`bash
+source .venv/bin/activate
+\`\`\`
 
-```bash
-pip install ultralytics
-```
+Install dependencies:
 
-The current script requires additional preparation before execution because:
+\`\`\`bash
+pip install -r requirements.txt
+\`\`\`
 
-- dataset paths point to Google Drive
-- trained weights are not included
-- dataset configuration is not included
-- it contains Colab notebook syntax
+For GPU training, install a PyTorch build appropriate for the local CUDA environment.
 
-The file is:
+## Research Contributions of This Prototype
 
-```text
-Tumor detection.py
-```
+The current prototype focuses on four research-oriented ideas:
 
----
+1. Converting expert tumor masks into reproducible detector supervision.
+2. Comparing detector capacity and image resolution under a controlled protocol.
+3. Using detection boxes as prompts for foundation-model segmentation.
+4. Measuring the complete localization-to-segmentation pipeline against expert masks.
 
-## Spam Detection Experiment
+A natural next research extension is cross-plane generalization, uncertainty estimation, calibration, or comparison against conventional medical segmentation architectures such as U-Net and Attention U-Net.
 
-Install:
+## Limitations
 
-```bash
-pip install pandas scikit-learn
-```
+- BRISC is composed of 2D MRI slices rather than full 3D volumes.
+- Public patient identifiers are unavailable, so patient-disjoint splitting cannot be independently confirmed.
+- The pipeline is a research prototype and is not intended for diagnosis or clinical decision-making.
+- Detector-guided segmentation can fail when the detector misses the tumor.
+- Results may vary with hardware, model version, initialization, and training configuration.
 
-Then provide the required:
+## Citation
 
-```text
-Spam Detection.csv
-```
+Dataset paper:
 
-and run:
+\`\`\`bibtex
+@article{fateh2026brisc,
+  title={BRISC: Annotated Dataset for Brain Tumor Segmentation and Classification},
+  author={Fateh, Amirreza and Rezvani, Yasin and Moayedi, Sara and Rezvani, Sadjad and Fateh, Fatemeh and Fateh, Mansoor and Abolghasemi, Vahid},
+  journal={Scientific Data},
+  volume={13},
+  article={361},
+  year={2026},
+  doi={10.1038/s41597-026-06753-y}
+}
+\`\`\`
 
-```bash
-python spam_detection_project.py
-```
+## Author
 
----
-
-# 🎓 What These Projects Demonstrate
-
-These experiments helped develop practical familiarity with:
-
-### 👁️ Computer Vision
-
-- YOLO model training
-- object detection
-- inference
-- bounding boxes
-- segmentation
-- combining multiple vision models
-
-### 🧠 Machine Learning
-
-- data preprocessing
-- train/test splitting
-- feature engineering
-- classification
-- model comparison
-- evaluation metrics
-
-### 📝 NLP
-
-- text preprocessing
-- TF-IDF vectorization
-- spam classification
-
-### ☁️ Experimentation
-
-- Google Colab
-- GPU training
-- iterative model experimentation
-
----
-
-# ⚠️ Repository Status
-
-```text
-Purpose             → Learning / Experimentation
-Production Ready    → No
-Brain Tumor Model   → Experiment completed in Colab
-SAM2 Integration    → Present in experiment
-Spam Classification → Implemented
-Datasets Included   → No
-Formal Benchmarks   → Not documented
-Deployment          → Not included
-```
-
-This repository is preserved primarily as evidence of **learning progression and experimentation**.
-
----
-
-# 🗺️ Future Organization
-
-As individual experiments become more complete, they may be moved into dedicated repositories with:
-
-- cleaner source-code structure
-- reproducible environments
-- documented datasets
-- evaluation metrics
-- trained model metadata
-- screenshots
-- sample predictions
-- deployment instructions
-- demos
-
-The Brain Tumor YOLO11 + SAM2 experiment is the strongest candidate for a future standalone Computer Vision repository.
-
----
-
-# 👨‍💻 Author
-
-## Muhammad Ibrahim Hashmi
-
+**Muhammad Ibrahim Hashmi**  
 BS Artificial Intelligence
 
-Interested in:
-
-`Computer Vision` • `Machine Learning` • `Applied AI` • `Python`
-
-<p>
-
-<a href="https://github.com/Ibrahimshah0900">
-  <img
-    src="https://img.shields.io/badge/GitHub-Ibrahimshah0900-181717?style=for-the-badge&logo=github&logoColor=white"
-    alt="GitHub"
-  />
-</a>
-
-</p>
-
----
-
-<p align="center">
-  <img
-    src="https://readme-typing-svg.demolab.com?font=JetBrains+Mono&size=16&duration=3500&pause=1000&center=true&vCenter=true&width=680&lines=Learning+by+Building.;Experiment+%E2%86%92+Understand+%E2%86%92+Improve.;Every+Project+Adds+Another+Skill."
-    alt="Footer Animation"
-  />
-</p>
-
-<p align="center">
-  <b>🧠 Learn → Experiment → Evaluate → Improve</b>
-</p>
-
-<p align="center">
-  <img
-    src="https://capsule-render.vercel.app/api?type=waving&height=110&section=footer"
-    width="100%"
-    alt="Footer"
-  />
-</p>
+Research interests: Computer Vision, Medical AI, Machine Learning, Deep Learning
