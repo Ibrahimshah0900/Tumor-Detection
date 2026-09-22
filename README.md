@@ -1,124 +1,225 @@
-# Brain Tumor Detection and Segmentation Research Pipeline
+<div align="center">
 
-A reproducible research prototype for brain tumor analysis from T1-weighted MRI using YOLO-based localization and SAM2-based segmentation.
+# Brain Tumor Detection & Segmentation
 
-The project is designed as an experimental framework rather than a clinical product. Its goal is to study whether detector-guided segmentation can provide a compact, reproducible pipeline for localizing and segmenting glioma, meningioma, and pituitary tumors.
+### A detector-guided medical imaging research pipeline using YOLO11 and SAM2
 
-## Research Question
+[![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![YOLO11](https://img.shields.io/badge/Detection-YOLO11-111827)](https://docs.ultralytics.com/)
+[![SAM2](https://img.shields.io/badge/Segmentation-SAM2-6D28D9)](https://docs.ultralytics.com/models/sam-2/)
+[![Dataset](https://img.shields.io/badge/Dataset-BRISC%202025-0F766E)](https://www.kaggle.com/datasets/briscdataset/brisc2025)
+[![Research](https://img.shields.io/badge/Status-Research%20Prototype-B45309)](#research-status)
 
-Can a lightweight YOLO detector provide reliable spatial prompts for SAM2 and produce competitive tumor segmentation quality across tumor classes and MRI acquisition planes?
+**Localization · Segmentation · Controlled Experiments · Reproducible Evaluation**
+
+</div>
+
+---
+
+## Overview
+
+This repository investigates a two-stage approach for **brain tumor localization and segmentation from contrast-enhanced T1-weighted MRI**.
+
+The central idea is simple:
+
+> **Can a lightweight object detector localize a tumor accurately enough to provide an effective spatial prompt for a foundation segmentation model?**
+
+The pipeline combines **YOLO11** for tumor localization with **SAM2** for mask generation and evaluates both stages against expert-annotated MRI data.
+
+| Component | Design |
+|---|---|
+| Primary dataset | BRISC 2025 |
+| Tumor types | Glioma, Meningioma, Pituitary |
+| Negative cases | No-tumor MRI scans |
+| Detector study | YOLO11n, YOLO11s, YOLO11m |
+| Input study | 512 × 512 and 640 × 640 |
+| Segmentation | SAM2 prompted by YOLO boxes |
+| Detection metrics | Precision, Recall, mAP@50, mAP@75, mAP@50–95 |
+| Segmentation metrics | Dice, IoU, Pixel Precision, Pixel Recall |
+| Reproducibility | Fixed seeds, environment metadata, CSV/JSON experiment logs |
+
+---
+
+## Research Pipeline
+
+```mermaid
+flowchart LR
+    A[BRISC MRI] --> B[Dataset Audit]
+    B --> C[Mask-to-Box Conversion]
+    C --> D[YOLO11 Training]
+    D --> E[Model Comparison]
+    E --> F[Best Detector]
+    F --> G[Tumor Bounding Box]
+    G --> H[SAM2]
+    H --> I[Predicted Tumor Mask]
+    I --> J[Expert Mask Comparison]
+    J --> K[Dice / IoU / Pixel Metrics]
+```
+
+The detector is evaluated independently before its bounding boxes are used as prompts for segmentation. This makes it possible to study not only final mask quality, but also how localization errors propagate into the second stage.
+
+---
 
 ## Dataset
 
-The primary dataset is **BRISC 2025**, published in *Scientific Data*.
+The project uses **BRISC 2025**, an expert-annotated brain MRI dataset published in *Scientific Data*.
 
-BRISC contains:
+| Property | BRISC 2025 |
+|---|---:|
+| MRI images | 6,000 |
+| Official training set | 5,000 |
+| Official test set | 1,000 |
+| Segmentation image-mask pairs | 4,793 |
+| MRI sequence | Contrast-enhanced T1-weighted |
+| Imaging planes | Axial, Coronal, Sagittal |
+| Diagnostic classes | Glioma, Meningioma, Pituitary, No Tumor |
 
-- 6,000 contrast-enhanced T1-weighted MRI images
-- 5,000 official training images
-- 1,000 official test images
-- Glioma, meningioma, pituitary tumor, and no-tumor classes
-- Axial, coronal, and sagittal views
-- Expert-reviewed pixel-level masks for tumor-positive scans
-- Separate classification and segmentation task folders
+**Dataset:** [Kaggle — BRISC 2025](https://www.kaggle.com/datasets/briscdataset/brisc2025)  
+**Dataset paper:** [Fateh et al., Scientific Data (2026)](https://doi.org/10.1038/s41597-026-06753-y)
 
-Dataset:
-https://www.kaggle.com/datasets/briscdataset/brisc2025
+The dataset is **not committed to this repository**. This keeps the repository lightweight and preserves the dataset's original distribution and citation path.
 
-Paper:
-https://doi.org/10.1038/s41597-026-06753-y
+---
 
-The dataset itself is intentionally not stored in this repository.
+## Experimental Protocol
 
-## Experimental Design
+### Detection formulation
 
-The repository treats the official BRISC test set as held-out evaluation data.
+The object detector predicts three tumor classes:
 
-A validation split is created only from the official training partition. Stratification uses tumor class and MRI plane. Because public BRISC files do not provide patient identifiers, patient-disjoint splitting cannot be independently verified. This is recorded as a methodological limitation rather than hidden.
-
-For detection, the target classes are:
-
-| ID | Class |
+| ID | Target |
 |---:|---|
 | 0 | Glioma |
 | 1 | Meningioma |
 | 2 | Pituitary |
 
-No-tumor scans are used as negative samples with empty YOLO label files instead of being represented as a bounding-box class.
+**No-tumor scans are retained as negative examples with empty YOLO label files.** They are not represented by artificial "no tumor" bounding boxes.
 
-Tumor bounding boxes are generated directly from the expert segmentation masks.
+For tumor-positive scans, YOLO bounding boxes are derived directly from the expert segmentation masks.
 
-## Research Stages
+### Data split policy
 
-### Stage 1 — Dataset Audit
+The official BRISC **test set is kept untouched during model development**.
 
-The dataset is checked for:
+Validation data are created only from the official training partition using a fixed seed and stratification by:
 
-- class distribution
-- train/test counts
-- MRI plane distribution
-- segmentation-pair completeness
-- empty masks
-- tumor-mask area statistics
+- tumor class
+- MRI plane
 
-Run:
+BRISC does not expose complete patient identifiers. Therefore, strict patient-disjoint splitting cannot be independently guaranteed. This limitation is documented rather than hidden.
 
-\`\`\`bash
+---
+
+## Experiments
+
+The default detector experiment is a controlled comparison across model capacity and input resolution.
+
+| Experiment | Values |
+|---|---|
+| Architecture | YOLO11n · YOLO11s · YOLO11m |
+| Image size | 512 · 640 |
+| Epochs | 100 |
+| Seed | 42 |
+| Model-selection split | Validation |
+| Final evaluation split | Official BRISC test |
+
+Each run records its configuration and results automatically.
+
+### Detection evaluation
+
+The detector is assessed using:
+
+- **Precision**
+- **Recall**
+- **mAP@50**
+- **mAP@75**
+- **mAP@50–95**
+- **Inference latency**
+
+Ordinary classification accuracy is not used as the main detection metric because the task requires both correct class prediction and spatial localization.
+
+### Segmentation evaluation
+
+YOLO detections are passed to SAM2 as bounding-box prompts.
+
+The resulting masks are compared with the expert BRISC masks using:
+
+- **Dice coefficient**
+- **Intersection over Union**
+- **Pixel precision**
+- **Pixel recall**
+- **Detection coverage**
+- **Per-class performance**
+
+---
+
+## Published BRISC Reference Baselines
+
+These values come from the **BRISC dataset paper** and are included only as external context. They are **not claimed as results produced by this repository**.
+
+| Task | Model | Published result |
+|---|---|---:|
+| Classification | EfficientNetB0 | Accuracy **99.20%** |
+| Classification | EfficientNetB0 | Weighted F1 **99.20%** |
+| Segmentation | SaberNet | Weighted mIoU **80.60%** |
+| Segmentation | U-Net | Weighted mIoU **75.70%** |
+
+The purpose of this repository is not to reproduce those exact architectures. Instead, it studies a different question: **how well a lightweight detector can guide a general segmentation model in a two-stage tumor-analysis pipeline.**
+
+---
+
+## Research Status
+
+| Stage | Status |
+|---|---|
+| BRISC dataset auditing | ✅ Implemented |
+| Mask → YOLO label conversion | ✅ Implemented |
+| Reproducible train/val/test preparation | ✅ Implemented |
+| YOLO11 training pipeline | ✅ Implemented |
+| Multi-model / multi-resolution experiments | ✅ Implemented |
+| Detection metric export | ✅ Implemented |
+| YOLO → SAM2 integration | ✅ Implemented |
+| Dice / IoU segmentation benchmark | ✅ Implemented |
+| Full BRISC GPU experiment results | ⏳ Compute run required |
+
+The repository intentionally does not contain fabricated or hand-entered experimental scores. Model metrics are written automatically by the experiment code when training and evaluation are executed.
+
+---
+
+## Reproducible Workflow
+
+### 1. Install
+
+```bash
+git clone https://github.com/Ibrahimshah0900/Tumor-Detection.git
+cd Tumor-Detection
+
+python -m venv .venv
+pip install -r requirements.txt
+```
+
+### 2. Audit BRISC
+
+```bash
 python "Tumor detection.py" audit-brisc \
   --dataset-root /path/to/brisc2025 \
   --output outputs/dataset_audit
-\`\`\`
+```
 
-### Stage 2 — Detection Dataset Preparation
+### 3. Prepare YOLO data
 
-Expert masks are converted into YOLO bounding boxes.
-
-Run:
-
-\`\`\`bash
+```bash
 python "Tumor detection.py" prepare-brisc \
   --dataset-root /path/to/brisc2025 \
   --output datasets/brisc_yolo \
   --validation-fraction 0.15 \
   --seed 42 \
   --clean
-\`\`\`
+```
 
-Generated artifacts include:
+### 4. Run the detector study
 
-- \`data.yaml\`
-- train/validation/test image folders
-- YOLO labels
-- \`dataset_manifest.csv\`
-- \`dataset_summary.json\`
-
-### Stage 3 — Detector Training
-
-A single model can be trained with:
-
-\`\`\`bash
-python "Tumor detection.py" train \
-  --data datasets/brisc_yolo/data.yaml \
-  --model yolo11n.pt \
-  --epochs 100 \
-  --imgsz 640 \
-  --batch 16 \
-  --seed 42
-\`\`\`
-
-### Stage 4 — Controlled Detector Experiments
-
-The default study compares:
-
-- YOLO11n
-- YOLO11s
-- YOLO11m
-- 512 × 512 input
-- 640 × 640 input
-
-Run:
-
-\`\`\`bash
+```bash
 python "Tumor detection.py" experiment \
   --data datasets/brisc_yolo/data.yaml \
   --models yolo11n.pt yolo11s.pt yolo11m.pt \
@@ -127,233 +228,118 @@ python "Tumor detection.py" experiment \
   --batch 16 \
   --split val \
   --seed 42
-\`\`\`
+```
 
-The script stores per-run results in CSV and JSON for direct comparison.
+### 5. Evaluate detector-guided segmentation
 
-### Stage 5 — Detector Evaluation
-
-Primary detection metrics are:
-
-- Precision
-- Recall
-- mAP@50
-- mAP@75
-- mAP@50–95
-- Inference time
-
-Object detection is not evaluated with ordinary classification accuracy because localization quality matters in addition to class correctness.
-
-Run:
-
-\`\`\`bash
-python "Tumor detection.py" evaluate \
-  --weights runs/tumor_detection/<run>/weights/best.pt \
-  --data datasets/brisc_yolo/data.yaml \
-  --split val
-\`\`\`
-
-The official test split should be used only after model selection is complete.
-
-### Stage 6 — YOLO-Guided SAM2 Segmentation
-
-YOLO detections are converted into bounding-box prompts for SAM2.
-
-Pipeline:
-
-\`\`\`text
-MRI
- ↓
-YOLO tumor localization
- ↓
-Bounding-box prompt
- ↓
-SAM2
- ↓
-Predicted tumor mask
- ↓
-Comparison with expert BRISC mask
-\`\`\`
-
-Run:
-
-\`\`\`bash
+```bash
 python "Tumor detection.py" benchmark-segmentation \
   --weights runs/tumor_detection/<run>/weights/best.pt \
   --dataset-root /path/to/brisc2025 \
   --sam-model sam2.1_b.pt \
   --split test \
   --imgsz 640
-\`\`\`
+```
 
-Primary segmentation metrics are:
+---
 
-- Dice coefficient
-- Intersection over Union
-- Pixel precision
-- Pixel recall
-- Detection coverage
+## Experiment Outputs
 
-The benchmark also reports per-class segmentation performance.
+The code exports machine-readable artifacts instead of requiring manual result transcription.
 
-## Metrics
+```text
+runs/tumor_detection/
+├── research_<timestamp>/
+│   ├── experiment_config.json
+│   ├── experiment_results.csv
+│   ├── experiment_results.json
+│   └── experiment_ranking.json
+└── segmentation_benchmark_<timestamp>/
+    ├── segmentation_metrics.csv
+    ├── segmentation_metrics.json
+    └── segmentation_summary.json
+```
 
-### Detection
+Environment information such as Python, PyTorch, Ultralytics, CUDA availability, GPU model, seed, image size and timing information is recorded with the experiments.
 
-\`\`\`text
-Precision = TP / (TP + FP)
-Recall    = TP / (TP + FN)
-mAP@50    = mean Average Precision at IoU 0.50
-mAP@75    = mean Average Precision at IoU 0.75
-mAP@50-95 = mean AP averaged across IoU 0.50 to 0.95
-\`\`\`
+---
 
-### Segmentation
+## Repository
 
-\`\`\`text
-Dice = 2TP / (2TP + FP + FN)
-IoU  = TP / (TP + FP + FN)
-\`\`\`
-
-## Published BRISC Reference Results
-
-The values below are **external published baselines**. They are included only as scientific context and are not claimed as results produced by this repository.
-
-| Task | Model | Reported Result |
-|---|---|---:|
-| Classification | EfficientNetB0 | Accuracy 99.20% |
-| Segmentation | Swin-HAFNet | Weighted mIoU 82.30% |
-| Segmentation | U-Net | Weighted mIoU 75.70% |
-| Segmentation | SaberNet | Weighted mIoU 80.60% |
-
-Source: Fateh et al., *Scientific Data*, 2026.
-
-These baselines provide reference points for interpreting future YOLO + SAM2 results. Direct comparison must account for differences in task formulation, training protocol, architecture, and evaluation setup.
-
-## Result Integrity
-
-This repository does not contain fabricated model scores.
-
-Measured YOLO and SAM2 results are written automatically by the code after training and evaluation. Until a complete BRISC experiment is executed, published reference results remain clearly separated from repository-generated results.
-
-This distinction is intentional because reproducibility and traceability are more important than displaying unverified accuracy numbers.
-
-## Reproducibility
-
-The pipeline records:
-
-- random seed
-- Python version
-- PyTorch version
-- Ultralytics version
-- CUDA availability
-- GPU name
-- image size
-- batch size
-- training duration
-- inference latency
-- best checkpoint path
-- experiment metrics
-
-Experiment outputs are saved under \`runs/tumor_detection/\`.
-
-## Repository Structure
-
-\`\`\`text
+```text
 Tumor-Detection/
 ├── Tumor detection.py
-├── README.md
 ├── requirements.txt
-└── .gitignore
-\`\`\`
+├── .gitignore
+└── README.md
+```
 
-After dataset preparation and experimentation:
+The main Python file contains the complete research workflow:
 
-\`\`\`text
-Tumor-Detection/
-├── datasets/
-│   └── brisc_yolo/
-│       ├── images/
-│       ├── labels/
-│       ├── data.yaml
-│       ├── dataset_manifest.csv
-│       └── dataset_summary.json
-├── runs/
-│   └── tumor_detection/
-├── Tumor detection.py
-├── README.md
-├── requirements.txt
-└── .gitignore
-\`\`\`
+```text
+audit-brisc
+prepare-brisc
+train
+evaluate
+experiment
+predict
+benchmark-segmentation
+```
 
-## Installation
-
-Python 3.10 or newer is recommended.
-
-\`\`\`bash
-git clone https://github.com/Ibrahimshah0900/Tumor-Detection.git
-cd Tumor-Detection
-python -m venv .venv
-\`\`\`
-
-Windows:
-
-\`\`\`bash
-.venv\Scripts\activate
-\`\`\`
-
-Linux/macOS:
-
-\`\`\`bash
-source .venv/bin/activate
-\`\`\`
-
-Install dependencies:
-
-\`\`\`bash
-pip install -r requirements.txt
-\`\`\`
-
-For GPU training, install a PyTorch build appropriate for the local CUDA environment.
-
-## Research Contributions of This Prototype
-
-The current prototype focuses on four research-oriented ideas:
-
-1. Converting expert tumor masks into reproducible detector supervision.
-2. Comparing detector capacity and image resolution under a controlled protocol.
-3. Using detection boxes as prompts for foundation-model segmentation.
-4. Measuring the complete localization-to-segmentation pipeline against expert masks.
-
-A natural next research extension is cross-plane generalization, uncertainty estimation, calibration, or comparison against conventional medical segmentation architectures such as U-Net and Attention U-Net.
+---
 
 ## Limitations
 
-- BRISC is composed of 2D MRI slices rather than full 3D volumes.
-- Public patient identifiers are unavailable, so patient-disjoint splitting cannot be independently confirmed.
-- The pipeline is a research prototype and is not intended for diagnosis or clinical decision-making.
-- Detector-guided segmentation can fail when the detector misses the tumor.
-- Results may vary with hardware, model version, initialization, and training configuration.
+- BRISC contains 2D single-slice MRI rather than complete 3D volumes.
+- Complete patient identifiers are unavailable, so patient-disjoint evaluation cannot be independently verified.
+- Results may vary across hardware and package versions despite deterministic settings.
+- A missed YOLO detection prevents the downstream SAM2 stage from receiving a useful tumor prompt.
+- BRISC contains contrast-enhanced T1-weighted data; performance should not be assumed to transfer directly to other MRI sequences or institutions.
+- This is a **research prototype**, not a clinical diagnostic system.
+
+---
+
+## Research Directions
+
+This framework can be extended into several stronger studies:
+
+- cross-plane generalization
+- uncertainty and confidence calibration
+- small-tumor sensitivity analysis
+- comparison with U-Net / Attention U-Net baselines
+- detector-free versus detector-guided SAM2 prompting
+- domain-shift evaluation on an external MRI dataset
+- 3D or multi-slice extensions
+- computational efficiency versus segmentation-quality analysis
+
+---
 
 ## Citation
 
-Dataset paper:
+If BRISC is used, cite the original dataset paper:
 
-\`\`\`bibtex
+```bibtex
 @article{fateh2026brisc,
-  title={BRISC: Annotated Dataset for Brain Tumor Segmentation and Classification},
-  author={Fateh, Amirreza and Rezvani, Yasin and Moayedi, Sara and Rezvani, Sadjad and Fateh, Fatemeh and Fateh, Mansoor and Abolghasemi, Vahid},
-  journal={Scientific Data},
-  volume={13},
-  article={361},
-  year={2026},
-  doi={10.1038/s41597-026-06753-y}
+  title   = {BRISC: Annotated Dataset for Brain Tumor Segmentation and Classification},
+  author  = {Fateh, Amirreza and Rezvani, Yasin and Moayedi, Sara and Rezvani, Sadjad and Fateh, Fatemeh and Fateh, Mansoor and Abolghasemi, Vahid},
+  journal = {Scientific Data},
+  volume  = {13},
+  article = {361},
+  year    = {2026},
+  doi     = {10.1038/s41597-026-06753-y}
 }
-\`\`\`
+```
 
-## Author
+---
 
-**Muhammad Ibrahim Hashmi**  
-BS Artificial Intelligence
+<div align="center">
 
-Research interests: Computer Vision, Medical AI, Machine Learning, Deep Learning
+### Muhammad Ibrahim Hashmi
+
+**BS Artificial Intelligence**
+
+Computer Vision · Medical AI · Deep Learning · Applied Machine Learning
+
+[GitHub](https://github.com/Ibrahimshah0900)
+
+</div>
